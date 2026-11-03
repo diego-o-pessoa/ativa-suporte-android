@@ -98,8 +98,9 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId "com.carriez.flutter_hbb"
+        // Ativa Suporte: identificador proprio (convive com o RustDesk oficial).
+        // O namespace (pacote do codigo Kotlin/JNI) continua o do RustDesk.
+        applicationId "com.ativalocacao.suporte"
         minSdkVersion 22
         targetSdkVersion 36
         versionCode flutterVersionCode.toInteger()
