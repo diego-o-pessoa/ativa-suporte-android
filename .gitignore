@@ -60,3 +60,8 @@ flutter/web/
 /third_party/libdrmtap/
 # Local git worktrees
 .worktrees/
+
+# Ativa Suporte: chave de assinatura nunca vai para o repositorio
+*.jks
+*.keystore
+flutter/android/key.properties

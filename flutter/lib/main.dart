@@ -6,6 +6,7 @@ import 'package:bot_toast/bot_toast.dart';
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'ativa/ativa_home_page.dart';
 import 'package:flutter_hbb/common/widgets/overlay.dart';
 import 'package:flutter_hbb/desktop/pages/desktop_tab_page.dart';
 import 'package:flutter_hbb/desktop/pages/install_page.dart';
@@ -505,7 +506,11 @@ class _AppState extends State<App> with WidgetsBindingObserver {
               ? const DesktopTabPage()
               : isWeb
                   ? WebHomePage()
-                  : HomePage(),
+                  // Ativa Suporte: tela simples no Android (o RustDesk
+                  // completo fica escondido para o T.I.).
+                  : isAndroid
+                      ? const AtivaHomePage()
+                      : HomePage(),
           localizationsDelegates: const [
             GlobalMaterialLocalizations.delegate,
             GlobalWidgetsLocalizations.delegate,
