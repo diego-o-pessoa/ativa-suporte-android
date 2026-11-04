@@ -501,7 +501,9 @@ class _AppState extends State<App> with WidgetsBindingObserver {
               : bind.mainGetAppNameSync(),
           theme: MyTheme.lightTheme,
           darkTheme: MyTheme.darkTheme,
-          themeMode: MyTheme.currentThemeMode(),
+          // Ativa Suporte: sempre claro no Android. No modo escuro do
+          // celular os textos ficavam brancos sobre o fundo claro da tela.
+          themeMode: isAndroid ? ThemeMode.light : MyTheme.currentThemeMode(),
           home: isDesktop
               ? const DesktopTabPage()
               : isWeb

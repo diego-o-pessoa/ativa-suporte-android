@@ -4,11 +4,15 @@
 //    (avanca sozinho quando o Android confirma).
 // 2. Pronto: botao "PEDIR AJUDA AO T.I.". Ele liga o compartilhamento de
 //    tela (o Android pede "Comecar agora" toda vez - regra do sistema) e
-//    mostra o codigo e a senha em letras grandes, com envio pelo WhatsApp.
-// 3. Com o GLPI ao alcance (rede da empresa/VPN), o celular tambem aparece
+//    mostra o codigo e a senha (fixa deste celular) em letras grandes, com
+//    envio pelo WhatsApp.
+// 3. Com o T.I. conectado, a tela muda (fundo verde, sem codigo e senha) e
+//    tem o botao "PARAR COMPARTILHAMENTO"; ao parar, volta ao codigo e senha.
+// 4. Com o GLPI ao alcance (rede da empresa/VPN), o celular tambem aparece
 //    no Ativa Remote e o T.I. pode pedir o acesso por la.
 
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -25,6 +29,11 @@ import 'glpi_client.dart';
 
 const kAtivaBlue = Color(0xFF15559F);
 const kAtivaGreen = Color(0xFF48AE3E);
+const kAtivaInk = Color(0xFF142A5B);
+
+/// Senha fixa deste celular (o RustDesk guarda so o hash da senha
+/// permanente; aqui fica a copia para mostrar na tela).
+const _kFixedPasswordKey = 'ativa-fixed-password';
 
 class AtivaHomePage extends StatefulWidget {
   const AtivaHomePage({Key? key}) : super(key: key);
@@ -92,13 +101,38 @@ class _AtivaHomePageState extends State<AtivaHomePage> with WidgetsBindingObserv
     }
   }
 
-  /// Senha temporaria de 8 caracteres e entrada so com senha (sem a janela
-  /// extra de "Aceitar" do RustDesk: a autorizacao e o proprio "Pedir ajuda").
+  /// Senha fixa de 8 caracteres, sorteada uma vez por celular, e entrada
+  /// pela senha OU pelo botao "Aceitar" no celular (quando o T.I. conecta
+  /// sem digitar a senha).
   Future<void> _configureRustDesk() async {
-    await bind.mainSetOption(key: kOptionApproveMode, value: 'password');
-    await bind.mainSetOption(key: kOptionVerificationMethod, value: kUseTemporaryPassword);
-    await bind.mainSetOption(key: 'temporary-password-length', value: '8');
+    await bind.mainSetOption(key: kOptionApproveMode, value: defaultOptionApproveMode);
     await bind.mainSetLocalOption(key: kOptionDisableFloatingWindow, value: 'Y');
+    var password = bind.mainGetLocalOption(key: _kFixedPasswordKey);
+    final created = password.isEmpty;
+    if (created) {
+      password = _newPassword();
+      await bind.mainSetLocalOption(key: _kFixedPasswordKey, value: password);
+    }
+    if (created || await bind.mainGetCommon(key: 'permanent-password-set') != 'true') {
+      final saved = await bind.mainSetPermanentPasswordWithResult(password: password);
+      if (!saved && await bind.mainGetCommon(key: 'permanent-password-set') != 'true') {
+        // Nao gravou: segue com a senha temporaria (a tela mostra ela) e
+        // tenta de novo na proxima abertura.
+        await bind.mainSetLocalOption(key: _kFixedPasswordKey, value: '');
+        await bind.mainSetOption(key: kOptionVerificationMethod, value: kUseTemporaryPassword);
+        _refresh();
+        return;
+      }
+    }
+    await bind.mainSetOption(key: kOptionVerificationMethod, value: kUsePermanentPassword);
+    if (mounted) setState(() => _password = password);
+  }
+
+  /// 8 caracteres sem os que confundem ao ditar (0/O, 1/l/I).
+  static String _newPassword() {
+    const chars = 'abcdefghjkmnpqrstuvwxyz23456789';
+    final random = Random.secure();
+    return List.generate(8, (_) => chars[random.nextInt(chars.length)]).join();
   }
 
   Future<void> _refresh() async {
@@ -107,17 +141,21 @@ class _AtivaHomePageState extends State<AtivaHomePage> with WidgetsBindingObserv
     final notification = androidVersion < 33 || await AndroidPermissionManager.check(kAndroid13Notification);
     final battery = await AndroidPermissionManager.check(kRequestIgnoreBatteryOptimizations);
     final id = await bind.mainGetMyId();
-    final password = await bind.mainGetTemporaryPassword();
+    var password = bind.mainGetLocalOption(key: _kFixedPasswordKey);
+    if (password.isEmpty) password = await bind.mainGetTemporaryPassword();
     if (!mounted) return;
     setState(() {
       _notificationOk = notification;
       _batteryOk = battery;
       _id = id;
-      _password = password;
+      if (password.isNotEmpty) _password = password;
     });
   }
 
   bool get _inputOk => _server.inputOk;
+
+  /// O T.I. esta conectado e vendo a tela agora.
+  bool get _techConnected => _server.isStart && _server.clients.any((c) => c.authorized && !c.disconnected);
   bool get _ready => _notificationOk && _inputOk && _batteryOk;
 
   // ------------------------------------------------------------ permissoes
@@ -215,10 +253,9 @@ class _AtivaHomePageState extends State<AtivaHomePage> with WidgetsBindingObserv
 
   Future<void> _stopSharing() async {
     if (_server.isStart) {
+      // Derruba o T.I. e desliga o compartilhamento.
       await _server.stopService();
     }
-    // Senha nova a cada atendimento: a anterior deixa de valer.
-    await bind.mainUpdateTemporaryPassword();
     _refresh();
   }
 
@@ -352,21 +389,90 @@ class _AtivaHomePageState extends State<AtivaHomePage> with WidgetsBindingObserv
 
   @override
   Widget build(BuildContext context) {
+    if (_techConnected) {
+      return _sharingScreen();
+    }
     return Scaffold(
       backgroundColor: const Color(0xFFF3F6FB),
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
-          children: [
-            _header(),
-            const SizedBox(height: 24),
-            if (_helpActive) _helpCard() else if (_ready) _readyCard() else _wizard(),
-            const SizedBox(height: 28),
-            _footer(),
-          ],
+        // Cor fixa do texto: com o celular no modo escuro ele vinha branco
+        // sobre o fundo claro.
+        child: DefaultTextStyle.merge(
+          style: const TextStyle(color: kAtivaInk),
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
+            children: [
+              _header(),
+              const SizedBox(height: 24),
+              if (_helpActive) _helpCard() else if (_ready) _readyCard() else _wizard(),
+              const SizedBox(height: 28),
+              _footer(),
+            ],
+          ),
         ),
       ),
     );
+  }
+
+  /// Tela de quando o T.I. esta conectado: bem diferente da tela do codigo,
+  /// para ninguem confundir, com o botao de parar.
+  Widget _sharingScreen() {
+    final names = _server.clients.where((c) => c.authorized && !c.disconnected).map((c) => c.name).where((n) => n.isNotEmpty).toSet();
+    return Scaffold(
+      backgroundColor: const Color(0xFF1E6B2F),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 32, 24, 24),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            const Spacer(),
+            const Icon(Icons.screen_share, color: Colors.white, size: 96),
+            const SizedBox(height: 20),
+            const Text('Sua tela está sendo compartilhada',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 12),
+            Text(
+              names.isEmpty
+                  ? 'O T.I. da Ativa está vendo e controlando o seu celular.'
+                  : 'O T.I. da Ativa (${names.join(', ')}) está vendo e controlando o seu celular.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white, fontSize: 18),
+            ),
+            const SizedBox(height: 8),
+            const Text('Pode soltar o celular enquanto o T.I. trabalha.',
+                textAlign: TextAlign.center, style: TextStyle(color: Colors.white70, fontSize: 16)),
+            const Spacer(),
+            SizedBox(
+              height: 88,
+              child: FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.red.shade600,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                ),
+                onPressed: _confirmStop,
+                icon: const Icon(Icons.stop_circle, size: 34),
+                label: const Text('PARAR COMPARTILHAMENTO', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text('Ao parar, o T.I. é desconectado na hora.',
+                textAlign: TextAlign.center, style: TextStyle(color: Colors.white70, fontSize: 14)),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmStop() async {
+    final stop = await _explain(
+      icon: Icons.stop_circle,
+      title: 'Parar o compartilhamento?',
+      lines: const ['O T.I. será desconectado e não verá mais a sua tela.'],
+      button: 'PARAR',
+      cancel: 'CONTINUAR AJUDA',
+    );
+    if (stop) await _endHelp();
   }
 
   Widget _header() {
@@ -463,49 +569,49 @@ class _AtivaHomePageState extends State<AtivaHomePage> with WidgetsBindingObserv
           label: const Text('PEDIR AJUDA AO T.I.', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
         ),
       ),
+      const SizedBox(height: 20),
+      _bigValue('CÓDIGO', _formatId(_id)),
+      const SizedBox(height: 12),
+      _bigValue('SENHA', _password),
+      const SizedBox(height: 6),
+      const Text('O T.I. só consegue entrar depois que você tocar em PEDIR AJUDA.',
+          textAlign: TextAlign.center, style: TextStyle(fontSize: 14, color: Colors.black54)),
     ]);
   }
 
+  /// Compartilhamento ligado, esperando o T.I. (conectado, aparece a
+  /// _sharingScreen no lugar desta).
   Widget _helpCard() {
-    final connected = _server.clients.any((c) => !c.disconnected);
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: connected ? kAtivaGreen : kAtivaBlue, width: 2),
+        border: Border.all(color: kAtivaBlue, width: 2),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Row(children: [
-          Icon(connected ? Icons.headset_mic : Icons.hourglass_top, color: connected ? kAtivaGreen : kAtivaBlue, size: 32),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(connected ? 'O T.I. está no seu celular' : 'Aguardando o T.I.',
-                style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w800)),
-          ),
+        const Row(children: [
+          Icon(Icons.hourglass_top, color: kAtivaBlue, size: 32),
+          SizedBox(width: 10),
+          Expanded(child: Text('Aguardando o T.I.', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800))),
         ]),
         const SizedBox(height: 6),
-        Text(
-          connected
-              ? 'Pode soltar o celular. Para encerrar, toque no botão vermelho.'
-              : 'Leia o código e a senha para o T.I., ou envie pelo WhatsApp.',
-          style: const TextStyle(fontSize: 16, color: Colors.black54),
-        ),
+        const Text('Leia o código e a senha para o T.I., ou envie pelo WhatsApp.',
+            style: TextStyle(fontSize: 16, color: Colors.black54)),
         const SizedBox(height: 18),
         _bigValue('CÓDIGO', _formatId(_id)),
         const SizedBox(height: 12),
         _bigValue('SENHA', _password),
         const SizedBox(height: 18),
-        if (!connected)
-          SizedBox(
-            height: 60,
-            child: FilledButton.icon(
-              style: FilledButton.styleFrom(backgroundColor: kAtivaGreen),
-              onPressed: _sendWhatsApp,
-              icon: const Icon(Icons.send),
-              label: const Text('ENVIAR PELO WHATSAPP', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-            ),
+        SizedBox(
+          height: 60,
+          child: FilledButton.icon(
+            style: FilledButton.styleFrom(backgroundColor: kAtivaGreen),
+            onPressed: _sendWhatsApp,
+            icon: const Icon(Icons.send),
+            label: const Text('ENVIAR PELO WHATSAPP', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
           ),
+        ),
         const SizedBox(height: 10),
         SizedBox(
           height: 60,
@@ -513,7 +619,7 @@ class _AtivaHomePageState extends State<AtivaHomePage> with WidgetsBindingObserv
             style: FilledButton.styleFrom(backgroundColor: Colors.red.shade600),
             onPressed: _endHelp,
             icon: const Icon(Icons.stop_circle),
-            label: const Text('ENCERRAR AJUDA', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+            label: const Text('PARAR COMPARTILHAMENTO', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
           ),
         ),
       ]),
@@ -534,7 +640,7 @@ class _AtivaHomePageState extends State<AtivaHomePage> with WidgetsBindingObserv
           const SizedBox(height: 4),
           FittedBox(
             child: Text(value.isEmpty ? '...' : value,
-                style: const TextStyle(fontSize: 34, fontWeight: FontWeight.w800, letterSpacing: 2)),
+                style: const TextStyle(fontSize: 34, fontWeight: FontWeight.w800, letterSpacing: 2, color: kAtivaInk)),
           ),
         ]),
       ),
