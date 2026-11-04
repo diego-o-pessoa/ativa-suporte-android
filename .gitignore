@@ -65,3 +65,9 @@ flutter/web/
 *.jks
 *.keystore
 flutter/android/key.properties
+
+# Ativa Instalador (Gradle)
+instalador/.gradle/
+instalador/build/
+instalador/app/build/
+instalador/local.properties

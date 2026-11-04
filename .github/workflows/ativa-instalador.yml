@@ -1,0 +1,87 @@
+name: Ativa Instalador - APK
+
+# Gera o Ativa Instalador (app pequeno, sem permissoes sensiveis, enviado pelo
+# WhatsApp) que instala e atualiza o Ativa Suporte a partir das Releases.
+# Assinado com a mesma chave da Ativa (segredos ANDROID_KEYSTORE_*).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master, "claude/**"]
+    paths:
+      - "instalador/**"
+      - ".github/workflows/ativa-instalador.yml"
+
+jobs:
+  build:
+    name: APK do instalador
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      ATIVA_VERSION_NAME: "1.0.${{ github.run_number }}"
+      ATIVA_VERSION_CODE: "${{ github.run_number }}"
+      HAS_SIGNING_KEY: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Signing key
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ "${HAS_SIGNING_KEY}" = "true" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/ativa.jks"
+            {
+              echo "ATIVA_KEYSTORE_FILE=$RUNNER_TEMP/ativa.jks"
+              echo "ATIVA_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD"
+              echo "ATIVA_KEY_ALIAS=$KEY_ALIAS"
+              echo "ATIVA_KEY_PASSWORD=$KEY_PASSWORD"
+            } >> "$GITHUB_ENV"
+          else
+            echo "::warning::Sem a chave da Ativa: instalador de TESTE (chave temporaria)."
+          fi
+
+      - name: Build APK
+        working-directory: instalador
+        run: gradle --no-daemon assembleRelease
+
+      - name: Rename
+        shell: bash
+        run: |
+          mkdir -p out
+          suffix=$([ "${HAS_SIGNING_KEY}" = "true" ] && echo "" || echo "-TESTE")
+          cp instalador/app/build/outputs/apk/release/app-release.apk "out/ativa-instalador${suffix}.apk"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ativa-instalador-${{ env.ATIVA_VERSION_NAME }}
+          path: out/*.apk
+          retention-days: 30
+
+      # Link fixo para mandar no WhatsApp:
+      # https://github.com/<repo>/releases/download/instalador-v<versao>/ativa-instalador.apk
+      - name: Publish release
+        if: env.HAS_SIGNING_KEY == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "instalador-v${ATIVA_VERSION_NAME}" out/ativa-instalador.apk \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --latest=false \
+            --title "Ativa Instalador ${ATIVA_VERSION_NAME}" \
+            --notes "Mande este arquivo pelo WhatsApp: ele instala e atualiza o Ativa Suporte."
