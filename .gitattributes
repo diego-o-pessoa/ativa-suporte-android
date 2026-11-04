@@ -1,1 +1,5 @@
 * text=auto
+
+# Scripts do Windows com quebra de linha do Windows
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
