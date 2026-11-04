@@ -81,6 +81,7 @@ class _AtivaHomePageState extends State<AtivaHomePage> with WidgetsBindingObserv
     _server.removeListener(_onServerChanged);
     _permTimer?.cancel();
     _glpiTimer?.cancel();
+    _techGoneTimer?.cancel();
     super.dispose();
   }
 
@@ -93,6 +94,7 @@ class _AtivaHomePageState extends State<AtivaHomePage> with WidgetsBindingObserv
   }
 
   void _onServerChanged() {
+    _watchTechLeaving();
     // O compartilhamento parou por fora (notificacao, sistema): encerra a ajuda.
     if (_helpActive && !_starting && !_server.isStart) {
       setState(() => _helpActive = false);
@@ -266,7 +268,32 @@ class _AtivaHomePageState extends State<AtivaHomePage> with WidgetsBindingObserv
     _scheduleGlpi(Duration.zero);
   }
 
+  /// O T.I. ja entrou neste atendimento.
+  bool _techWasHere = false;
+  Timer? _techGoneTimer;
+
+  /// O T.I. saiu do RustDesk: para o compartilhamento no celular. Espera
+  /// alguns segundos porque o RustDesk do computador reconecta sozinho
+  /// quando a internet oscila.
+  void _watchTechLeaving() {
+    if (_techConnected) {
+      _techWasHere = true;
+      _techGoneTimer?.cancel();
+      _techGoneTimer = null;
+    } else if (_techWasHere && _server.isStart && _techGoneTimer == null) {
+      _techGoneTimer = Timer(const Duration(seconds: 5), () async {
+        _techGoneTimer = null;
+        if (!mounted || _techConnected || !_server.isStart) return;
+        await _endHelp();
+        _toast('O T.I. saiu. O compartilhamento da tela foi encerrado.');
+      });
+    }
+  }
+
   Future<void> _endHelp() async {
+    _techWasHere = false;
+    _techGoneTimer?.cancel();
+    _techGoneTimer = null;
     setState(() => _helpActive = false);
     await _stopSharing();
     _scheduleGlpi(Duration.zero);
