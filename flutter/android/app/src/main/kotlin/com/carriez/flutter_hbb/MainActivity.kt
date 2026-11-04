@@ -332,6 +332,9 @@ class MainActivity : FlutterActivity() {
                         result.success(false)
                     }
                 }
+                "ativa_restricted_state" -> {
+                    result.success(restrictedSettingsState(context))
+                }
                 START_ACTION -> {
                     if (call.arguments is String) {
                         startAction(context, call.arguments as String)

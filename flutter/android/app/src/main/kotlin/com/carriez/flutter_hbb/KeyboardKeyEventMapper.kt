@@ -19,6 +19,11 @@ object KeyEventConverter {
             }
         } else if (keyEventProto.hasControlKey()) {
             chrValue = convertControlKeyToKeyCode(keyEventProto.getControlKey())
+            // Ativa Suporte: teclado numerico com Num Lock desligado = setas,
+            // Home/End etc. (com Num Lock ligado vira texto, ver numpadText).
+            if (chrValue == 0 && !keyEventProto.getModifiersList().contains(ControlKey.NumLock)) {
+                chrValue = numpadNavigationKeyCode(keyEventProto.getControlKey())
+            }
         }
 
         var modifiersList = keyEventProto.getModifiersList()
@@ -54,6 +59,51 @@ object KeyEventConverter {
             ControlKey.RAlt -> KeyEvent.META_ALT_RIGHT_ON
             ControlKey.RControl -> KeyEvent.META_CTRL_RIGHT_ON
             else -> 0 // Default to unknown.
+        }
+    }
+
+    /**
+     * Ativa Suporte: o RustDesk do computador manda as teclas do teclado
+     * numerico como Numpad0..9/Add/... e o Android nao tinha traducao, entao
+     * os numeros digitados ali nao apareciam. Devolve o texto da tecla, ou
+     * null se nao for do teclado numerico (ou se for navegacao).
+     */
+    fun numpadText(keyEventProto: hbb.MessageOuterClass.KeyEvent): String? {
+        if (!keyEventProto.hasControlKey()) return null
+        val numLock = keyEventProto.getModifiersList().contains(ControlKey.NumLock)
+        return when (keyEventProto.getControlKey()) {
+            ControlKey.Numpad0 -> if (numLock) "0" else null
+            ControlKey.Numpad1 -> if (numLock) "1" else null
+            ControlKey.Numpad2 -> if (numLock) "2" else null
+            ControlKey.Numpad3 -> if (numLock) "3" else null
+            ControlKey.Numpad4 -> if (numLock) "4" else null
+            ControlKey.Numpad5 -> if (numLock) "5" else null
+            ControlKey.Numpad6 -> if (numLock) "6" else null
+            ControlKey.Numpad7 -> if (numLock) "7" else null
+            ControlKey.Numpad8 -> if (numLock) "8" else null
+            ControlKey.Numpad9 -> if (numLock) "9" else null
+            ControlKey.Decimal -> if (numLock) java.text.DecimalFormatSymbols.getInstance().decimalSeparator.toString() else null
+            ControlKey.Divide -> "/"
+            ControlKey.Multiply -> "*"
+            ControlKey.Subtract -> "-"
+            ControlKey.Add -> "+"
+            else -> null
+        }
+    }
+
+    private fun numpadNavigationKeyCode(controlKey: hbb.MessageOuterClass.ControlKey): Int {
+        return when (controlKey) {
+            ControlKey.Numpad0 -> KeyEvent.KEYCODE_INSERT
+            ControlKey.Numpad1 -> KeyEvent.KEYCODE_MOVE_END
+            ControlKey.Numpad2 -> KeyEvent.KEYCODE_DPAD_DOWN
+            ControlKey.Numpad3 -> KeyEvent.KEYCODE_PAGE_DOWN
+            ControlKey.Numpad4 -> KeyEvent.KEYCODE_DPAD_LEFT
+            ControlKey.Numpad6 -> KeyEvent.KEYCODE_DPAD_RIGHT
+            ControlKey.Numpad7 -> KeyEvent.KEYCODE_MOVE_HOME
+            ControlKey.Numpad8 -> KeyEvent.KEYCODE_DPAD_UP
+            ControlKey.Numpad9 -> KeyEvent.KEYCODE_PAGE_UP
+            ControlKey.Decimal -> KeyEvent.KEYCODE_FORWARD_DEL
+            else -> 0
         }
     }
 
@@ -109,6 +159,7 @@ object KeyEventConverter {
             ControlKey.Space -> KeyEvent.KEYCODE_SPACE
             ControlKey.Tab -> KeyEvent.KEYCODE_TAB
             ControlKey.Return -> KeyEvent.KEYCODE_ENTER
+            ControlKey.NumpadEnter -> KeyEvent.KEYCODE_ENTER
             ControlKey.Delete -> KeyEvent.KEYCODE_FORWARD_DEL
             ControlKey.Clear -> KeyEvent.KEYCODE_CLEAR
             ControlKey.Pause -> KeyEvent.KEYCODE_BREAK

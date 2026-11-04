@@ -94,6 +94,38 @@ fun requestPermission(context: Context, type: String) {
         }
 }
 
+/**
+ * Ativa Suporte: a "Configuracao restrita" do Android 13+ esta travando a
+ * Acessibilidade deste app? 1 = travada, 0 = liberada, -1 = nao deu para saber.
+ */
+fun restrictedSettingsState(context: Context): Int {
+    if (Build.VERSION.SDK_INT < 33) return 0
+    return try {
+        val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as android.app.AppOpsManager
+        val mode = appOps.unsafeCheckOpNoThrow(
+            "android:access_restricted_settings",
+            android.os.Process.myUid(),
+            context.packageName
+        )
+        when (mode) {
+            android.app.AppOpsManager.MODE_ALLOWED -> 0
+            android.app.AppOpsManager.MODE_ERRORED, android.app.AppOpsManager.MODE_IGNORED -> 1
+            else -> {
+                // Sem decisao gravada: depende de onde o app veio.
+                val source = context.packageManager.getInstallSourceInfo(context.packageName).packageSource
+                when (source) {
+                    android.content.pm.PackageInstaller.PACKAGE_SOURCE_LOCAL_FILE,
+                    android.content.pm.PackageInstaller.PACKAGE_SOURCE_DOWNLOADED_FILE -> 1
+                    android.content.pm.PackageInstaller.PACKAGE_SOURCE_STORE -> 0
+                    else -> -1
+                }
+            }
+        }
+    } catch (e: Exception) {
+        -1
+    }
+}
+
 fun startAction(context: Context, action: String) {
     try {
         context.startActivity(Intent(action).apply {

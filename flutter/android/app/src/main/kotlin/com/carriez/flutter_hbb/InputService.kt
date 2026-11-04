@@ -458,6 +458,9 @@ class InputService : AccessibilityService() {
                 if (chr != null) {
                     textToCommit = String(Character.toChars(chr))
                 }
+            } else if (keyEvent.getDown() || keyEvent.getPress()) {
+                // Ativa Suporte: numeros do teclado numerico do computador.
+                textToCommit = KeyEventConverter.numpadText(keyEvent)
             }
         } else if (keyboardMode == KeyboardMode.Translate) {
         } else {

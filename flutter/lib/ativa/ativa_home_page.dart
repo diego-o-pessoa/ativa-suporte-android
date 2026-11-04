@@ -89,7 +89,7 @@ class _AtivaHomePageState extends State<AtivaHomePage> with WidgetsBindingObserv
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // Voltou das configuracoes do Android: confere as permissoes na hora.
     if (state == AppLifecycleState.resumed) {
-      _refresh();
+      _refresh().then((_) => _continueGuide());
     }
   }
 
@@ -183,39 +183,158 @@ class _AtivaHomePageState extends State<AtivaHomePage> with WidgetsBindingObserv
             'tocar e digitar no seu celular durante um atendimento que você pediu ou autorizou.',
         'O app não lê, não guarda e não envia nada da sua tela fora do atendimento, '
             'e você pode encerrar a qualquer momento.',
-        'Se concordar, na próxima tela:',
-        '1. Toque em "Aplicativos instalados" (ou "Serviços baixados").',
-        '2. Toque em "Ativa Suporte".',
-        '3. Ligue a chave e toque em "Permitir".',
-        '4. Volte para este aplicativo.',
       ],
       button: 'CONCORDO',
       cancel: 'NÃO CONCORDO',
     );
-    if (go) {
-      AndroidPermissionManager.startAction(kActionAccessibilitySettings);
+    if (!go) return;
+    if (await _restrictedState() == 1) {
+      // App instalado pelo WhatsApp/navegador: antes precisa liberar.
+      await _startUnlockGuide();
+      return;
+    }
+    await _showEnableSteps();
+  }
+
+  // Roteiro da "Configuracao restrita" (Android 13+). O Android nao deixa o
+  // app se liberar sozinho; o app abre cada tela na hora certa:
+  //  1. Acessibilidade: tocar em "Ativa Suporte" (o Android mostra o aviso
+  //     de bloqueio - so depois disso aparecem os tres pontinhos).
+  //  2. Informacoes do app: tres pontinhos > Permitir configuracoes restritas.
+  //  3. Acessibilidade de novo: ligar a chave.
+  int _guideStep = 0;
+  bool _guideBusy = false;
+
+  /// 1 = travada, 0 = liberada, -1 = nao deu para saber.
+  Future<int> _restrictedState() async {
+    if (androidVersion < 33) return 0;
+    try {
+      return await platformFFI.invokeMethodWithResult<int>('ativa_restricted_state') ?? -1;
+    } catch (_) {
+      return -1;
     }
   }
 
-  /// "Configuracao restrita": leva as informacoes do app, onde fica o
-  /// "Permitir configuracoes restritas" (menu de tres pontinhos).
-  Future<void> _unlockRestricted() async {
+  Future<void> _showEnableSteps() async {
     final go = await _explain(
-      icon: Icons.lock_open,
-      title: 'Liberar a configuração restrita',
+      icon: Icons.touch_app,
+      title: 'Ligar o controle da tela',
       lines: const [
-        'O Android trava esta permissão em apps instalados pelo WhatsApp. Para liberar:',
         '1. Toque em ABRIR.',
-        '2. Toque nos três pontinhos (⋮) no canto de cima.',
-        '3. Toque em "Permitir configurações restritas" e confirme.',
-        '4. Volte para este aplicativo e toque em PERMITIR CONTROLE de novo.',
+        '2. Toque em "Aplicativos instalados" (ou "Serviços baixados").',
+        '3. Toque em "Ativa Suporte".',
+        '4. Ligue a chave e toque em "Permitir".',
+        '5. Volte para este aplicativo.',
       ],
       button: 'ABRIR',
     );
-    if (go) {
-      AndroidPermissionManager.startAction('android.settings.APPLICATION_DETAILS_SETTINGS');
+    if (!go) return;
+    _guideStep = 3;
+    AndroidPermissionManager.startAction(kActionAccessibilitySettings);
+  }
+
+  Future<void> _startUnlockGuide() async {
+    final go = await _explain(
+      icon: Icons.lock_open,
+      title: 'Liberar o Ativa Suporte',
+      lines: const [
+        'O Android trava esta permissão em apps instalados pelo WhatsApp. Vamos liberar, o app abre cada tela para você.',
+        'Primeiro passo:',
+        '1. Toque em ABRIR.',
+        '2. Toque em "Aplicativos instalados" (ou "Serviços baixados") e depois em "Ativa Suporte".',
+        '3. Vai aparecer "Configuração restrita". Toque em OK.',
+        '4. Volte para este aplicativo.',
+      ],
+      button: 'ABRIR',
+    );
+    if (!go) return;
+    _guideStep = 1;
+    AndroidPermissionManager.startAction(kActionAccessibilitySettings);
+  }
+
+  /// Chamado ao voltar das configuracoes do Android: mostra o proximo passo.
+  Future<void> _continueGuide() async {
+    if (_guideStep == 0 || _guideBusy || !mounted) return;
+    _guideBusy = true;
+    try {
+      // O estado da Acessibilidade chega do Android logo depois de voltar.
+      await Future.delayed(const Duration(milliseconds: 800));
+      gFFI.invokeMethod('check_service');
+      await Future.delayed(const Duration(milliseconds: 400));
+      if (!mounted || _inputOk) {
+        _guideStep = 0;
+        return;
+      }
+      final restricted = await _restrictedState();
+      switch (_guideStep) {
+        case 1:
+          if (restricted == 0) {
+            _guideStep = 0;
+            await _showEnableSteps();
+            return;
+          }
+          final go = await _explain(
+            icon: Icons.lock_open,
+            title: 'Agora, liberar',
+            lines: const [
+              '1. Toque em ABRIR.',
+              '2. Toque nos três pontinhos (⋮) no canto de cima.',
+              '3. Toque em "Permitir configurações restritas" e confirme.',
+              '4. Volte para este aplicativo.',
+            ],
+            button: 'ABRIR',
+          );
+          _guideStep = go ? 2 : 0;
+          if (go) AndroidPermissionManager.startAction('android.settings.APPLICATION_DETAILS_SETTINGS');
+          break;
+        case 2:
+          if (restricted == 1) {
+            final again = await _explain(
+              icon: Icons.lock,
+              title: 'Ainda está travado',
+              lines: const [
+                'Os três pontinhos só aparecem depois de tocar em "Ativa Suporte" na tela de Acessibilidade.',
+                'Vamos repetir: toque em ABRIR, toque em "Ativa Suporte", toque em OK no aviso e volte para cá.',
+              ],
+              button: 'ABRIR',
+            );
+            _guideStep = again ? 1 : 0;
+            if (again) AndroidPermissionManager.startAction(kActionAccessibilitySettings);
+          } else {
+            _guideStep = 0;
+            await _showEnableSteps();
+          }
+          break;
+        default:
+          // Tentou ligar a chave e voltou sem conseguir: se o Android travou
+          // ("Configuracao restrita"), os tres pontinhos ja estao liberados.
+          _guideStep = 0;
+          if (restricted == 0 || androidVersion < 33) return;
+          final go = await _explain(
+            icon: Icons.lock_open,
+            title: 'Apareceu "Configuração restrita"?',
+            lines: const [
+              'Então vamos liberar:',
+              '1. Toque em ABRIR.',
+              '2. Toque nos três pontinhos (⋮) no canto de cima.',
+              '3. Toque em "Permitir configurações restritas" e confirme.',
+              '4. Volte para este aplicativo.',
+            ],
+            button: 'ABRIR',
+            cancel: 'NÃO APARECEU',
+          );
+          if (go) {
+            _guideStep = 2;
+            AndroidPermissionManager.startAction('android.settings.APPLICATION_DETAILS_SETTINGS');
+          }
+      }
+    } finally {
+      _guideBusy = false;
     }
   }
+
+  /// Link "Apareceu Configuracao restrita?" do passo 2.
+  Future<void> _unlockRestricted() => _startUnlockGuide();
 
   // ------------------------------------------------------------ ajuda
 
