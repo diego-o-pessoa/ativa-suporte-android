@@ -88,7 +88,20 @@ jobs:
           ndk-version: ${{ env.NDK_VERSION }}
           add-to-path: true
 
+      # Biblioteca nativa do RustDesk (Rust): guardada e reusada enquanto o
+      # codigo Rust nao muda. Mudancas so de tela/permissao/config (Dart,
+      # Kotlin, XML) reusam a biblioteca e pulam o Rust + vcpkg (~15 min).
+      # A chave hash so os fontes versionados (nao o bridge gerado, que e
+      # deterministico a partir deles); "v1" invalida tudo se precisar.
+      - name: Cache native lib
+        id: nativecache
+        uses: actions/cache@v4
+        with:
+          path: target/${{ matrix.job.target }}/release/liblibrustdesk.so
+          key: ativanative-v1-${{ matrix.job.target }}-ndk${{ env.NDK_VERSION }}-rust${{ env.RUST_VERSION }}-vcpkg${{ env.VCPKG_COMMIT_ID }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'build.rs', 'src/**', 'libs/**', 'vcpkg.json', 'flutter/ndk_*.sh', 'flutter/build_android_deps.sh') }}
+
       - name: Setup vcpkg with Github Actions binary cache
+        if: steps.nativecache.outputs.cache-hit != 'true'
         uses: lukka/run-vcpkg@b1a0dd252f06b9e25b3c022a9a03bd7a427fb6a2 # v11
         with:
           vcpkgDirectory: /opt/artifacts/vcpkg
@@ -96,6 +109,7 @@ jobs:
           doNotCache: false
 
       - name: Install vcpkg dependencies
+        if: steps.nativecache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           if ! ./flutter/build_android_deps.sh "${{ matrix.job.abi }}"; then
@@ -110,17 +124,20 @@ jobs:
           path: ./
 
       - name: Install Rust toolchain
+        if: steps.nativecache.outputs.cache-hit != 'true'
         uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: ${{ env.RUST_VERSION }}
           components: "rustfmt"
 
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - if: steps.nativecache.outputs.cache-hit != 'true'
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           prefix-key: ativa-suporte-android
           key: ${{ matrix.job.target }}
 
       - name: Build rustdesk lib
+        if: steps.nativecache.outputs.cache-hit != 'true'
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
           ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
