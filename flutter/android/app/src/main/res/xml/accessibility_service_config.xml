@@ -4,4 +4,9 @@
     android:accessibilityFlags="flagDefault"
     android:notificationTimeout="50"
     android:description="@string/accessibility_service_description"
-    android:canPerformGestures="true"/>
+    android:canPerformGestures="true"
+    android:isAccessibilityTool="true"/>
+<!-- Ativa Suporte: isAccessibilityTool permite que o T.I. toque nas telas que o
+     Android 14+ marca como sensiveis (ex.: adicionar conta Google). Uso so em
+     celulares da empresa, com atendimento pedido/autorizado pelo colaborador.
+     Remover se o app for publicado na Google Play (regra da loja). -->
