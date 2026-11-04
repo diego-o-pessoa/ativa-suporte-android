@@ -526,14 +526,19 @@ class _AtivaHomePageState extends State<AtivaHomePage> with WidgetsBindingObserv
 
   // ------------------------------------------------------------ util
 
+  /// "138452976" -> "138 452 976"; "1384529760" -> "138 452 9760" (nunca
+  /// um digito sozinho no fim, que confunde quem dita o codigo).
   static String _formatId(String id) {
     final digits = id.replaceAll(' ', '');
-    final buffer = StringBuffer();
-    for (var i = 0; i < digits.length; i++) {
-      if (i > 0 && i % 3 == 0) buffer.write(' ');
-      buffer.write(digits[i]);
+    final groups = <String>[];
+    var i = 0;
+    while (i < digits.length) {
+      final left = digits.length - i;
+      final size = left == 4 ? 4 : 3;
+      groups.add(digits.substring(i, i + (size < left ? size : left)));
+      i += size;
     }
-    return buffer.toString();
+    return groups.join(' ');
   }
 
   void _toast(String text) {
