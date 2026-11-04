@@ -176,3 +176,106 @@ jobs:
           name: ativa-suporte-${{ env.APP_VERSION }}-${{ matrix.job.arch }}
           path: out/*.apk
           retention-days: 30
+
+      # Bibliotecas nativas desta arquitetura, para o pacote da Play Store (.aab).
+      - name: Upload native libs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: jnilibs-${{ matrix.job.abi }}
+          path: flutter/android/app/src/main/jniLibs/${{ matrix.job.abi }}/
+          retention-days: 1
+
+  # Pacote da Google Play (.aab) com as duas arquiteturas. Instalado pela Play
+  # Store, o app nao cai no bloqueio do Play Protect para apps com
+  # Acessibilidade instalados fora da loja (regra do Google no Brasil).
+  build-bundle:
+    needs: [build-android]
+    name: Pacote Google Play (.aab)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openjdk-17-jdk-headless
+
+      - name: Checkout source code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: recursive
+
+      - name: Install flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: "stable"
+          flutter-version: ${{ env.ANDROID_FLUTTER_VERSION }}
+
+      - name: Patch flutter
+        run: |
+          cd $(dirname $(dirname $(which flutter)))
+          git apply ${{ github.workspace }}/.github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff
+
+      - uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779 # v1
+        with:
+          ndk-version: ${{ env.NDK_VERSION }}
+          add-to-path: true
+
+      - name: Restore bridge files
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bridge-artifact
+          path: ./
+
+      - name: Restore native libs (arm64)
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: jnilibs-arm64-v8a
+          path: flutter/android/app/src/main/jniLibs/arm64-v8a/
+
+      - name: Restore native libs (armv7)
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: jnilibs-armeabi-v7a
+          path: flutter/android/app/src/main/jniLibs/armeabi-v7a/
+
+      - name: Signing key
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ "${HAS_SIGNING_KEY}" = "true" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > ./flutter/android/app/ativa-release.jks
+            {
+              echo "storeFile=ativa-release.jks"
+              echo "storePassword=$KEYSTORE_PASSWORD"
+              echo "keyAlias=$KEY_ALIAS"
+              echo "keyPassword=$KEY_PASSWORD"
+            } > ./flutter/android/key.properties
+          else
+            sed -i "s/signingConfigs.release/signingConfigs.debug/g" ./flutter/android/app/build.gradle
+            echo "::warning::Sem a chave da Ativa: o .aab de teste NAO serve para a Play Store."
+          fi
+
+      - name: Build app bundle
+        shell: bash
+        env:
+          JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
+        run: |
+          export PATH=/usr/lib/jvm/java-17-openjdk-amd64/bin:$PATH
+          sed -i "s/org.gradle.jvmargs=-Xmx1024M/org.gradle.jvmargs=-Xmx2g/g" ./flutter/android/gradle.properties
+          ls -R flutter/android/app/src/main/jniLibs
+          cd flutter
+          flutter build appbundle --release --target-platform android-arm,android-arm64 \
+            --build-name "${APP_VERSION}" --build-number "$((1000 + ${{ github.run_number }}))"
+          mkdir -p ../out
+          suffix=$([ "${HAS_SIGNING_KEY}" = "true" ] && echo "" || echo "-TESTE")
+          mv build/app/outputs/bundle/release/app-release.aab "../out/ativa-suporte-${APP_VERSION}${suffix}.aab"
+
+      - name: Upload AAB
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ativa-suporte-${{ env.APP_VERSION }}-google-play
+          path: out/*.aab
+          retention-days: 30

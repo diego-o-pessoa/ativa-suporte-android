@@ -133,17 +133,24 @@ class _AtivaHomePageState extends State<AtivaHomePage> with WidgetsBindingObserv
   }
 
   Future<void> _askAccessibility() async {
+    // Aviso exigido pela Google Play antes de pedir a Acessibilidade: o que
+    // ela acessa, para que e consentimento explicito ("Concordo").
     final go = await _explain(
       icon: Icons.touch_app,
       title: 'Permitir o controle da tela',
       lines: const [
-        'Na próxima tela:',
+        'O Ativa Suporte usa a Acessibilidade do Android só para o T.I. da Ativa '
+            'tocar e digitar no seu celular durante um atendimento que você pediu ou autorizou.',
+        'O app não lê, não guarda e não envia nada da sua tela fora do atendimento, '
+            'e você pode encerrar a qualquer momento.',
+        'Se concordar, na próxima tela:',
         '1. Toque em "Aplicativos instalados" (ou "Serviços baixados").',
         '2. Toque em "Ativa Suporte".',
         '3. Ligue a chave e toque em "Permitir".',
         '4. Volte para este aplicativo.',
       ],
-      button: 'ABRIR CONFIGURAÇÕES',
+      button: 'CONCORDO',
+      cancel: 'NÃO CONCORDO',
     );
     if (go) {
       AndroidPermissionManager.startAction(kActionAccessibilitySettings);
@@ -559,12 +566,14 @@ class _AtivaHomePageState extends State<AtivaHomePage> with WidgetsBindingObserv
       builder: (context) => AlertDialog(
         icon: Icon(icon, size: 44, color: kAtivaBlue),
         title: Text(title, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w800)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: lines
-              .map((l) => Padding(padding: const EdgeInsets.only(bottom: 6), child: Text(l, style: const TextStyle(fontSize: 17))))
-              .toList(),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: lines
+                .map((l) => Padding(padding: const EdgeInsets.only(bottom: 6), child: Text(l, style: const TextStyle(fontSize: 17))))
+                .toList(),
+          ),
         ),
         actionsAlignment: MainAxisAlignment.spaceBetween,
         actions: [
