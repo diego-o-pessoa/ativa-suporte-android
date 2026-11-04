@@ -157,6 +157,26 @@ class _AtivaHomePageState extends State<AtivaHomePage> with WidgetsBindingObserv
     }
   }
 
+  /// "Configuracao restrita": leva as informacoes do app, onde fica o
+  /// "Permitir configuracoes restritas" (menu de tres pontinhos).
+  Future<void> _unlockRestricted() async {
+    final go = await _explain(
+      icon: Icons.lock_open,
+      title: 'Liberar a configuração restrita',
+      lines: const [
+        'O Android trava esta permissão em apps instalados pelo WhatsApp. Para liberar:',
+        '1. Toque em ABRIR.',
+        '2. Toque nos três pontinhos (⋮) no canto de cima.',
+        '3. Toque em "Permitir configurações restritas" e confirme.',
+        '4. Volte para este aplicativo e toque em PERMITIR CONTROLE de novo.',
+      ],
+      button: 'ABRIR',
+    );
+    if (go) {
+      AndroidPermissionManager.startAction('android.settings.APPLICATION_DETAILS_SETTINGS');
+    }
+  }
+
   // ------------------------------------------------------------ ajuda
 
   /// Liga o compartilhamento de tela. true quando o Android liberou.
@@ -396,6 +416,11 @@ class _AtivaHomePageState extends State<AtivaHomePage> with WidgetsBindingObserv
         done: _inputOk,
         button: 'PERMITIR CONTROLE',
         onTap: _askAccessibility,
+        // Android 13+: app instalado pelo WhatsApp/navegador tem a
+        // Acessibilidade travada ("Configuracao restrita") ate liberar
+        // nas informacoes do app.
+        helpText: androidVersion >= 33 ? 'Apareceu "Configuração restrita"?' : null,
+        onHelp: androidVersion >= 33 ? _unlockRestricted : null,
       ),
       _StepCard(
         number: androidVersion >= 33 ? 3 : 2,
@@ -597,6 +622,8 @@ class _StepCard extends StatelessWidget {
   final bool done;
   final String button;
   final VoidCallback onTap;
+  final String? helpText;
+  final VoidCallback? onHelp;
 
   const _StepCard({
     required this.number,
@@ -605,6 +632,8 @@ class _StepCard extends StatelessWidget {
     required this.done,
     required this.button,
     required this.onTap,
+    this.helpText,
+    this.onHelp,
   });
 
   @override
@@ -640,6 +669,14 @@ class _StepCard extends StatelessWidget {
               child: Text(button, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
             ),
           ),
+          if (helpText != null && onHelp != null) ...[
+            const SizedBox(height: 6),
+            TextButton.icon(
+              onPressed: onHelp,
+              icon: const Icon(Icons.help_outline),
+              label: Text(helpText!, style: const TextStyle(fontSize: 15)),
+            ),
+          ],
         ],
       ]),
     );
