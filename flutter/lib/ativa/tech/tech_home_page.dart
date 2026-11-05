@@ -13,6 +13,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../common.dart';
+import '../../common/formatter/id_formatter.dart';
 import 'tech_api.dart';
 
 /// Tela inicial do desktop = lista do Ativa Remote (false volta a tela do RustDesk).
