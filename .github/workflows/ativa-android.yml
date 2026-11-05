@@ -16,6 +16,10 @@ on:
     paths-ignore:
       - "docs/**"
       - "**.md"
+      # So do app Windows do T.I. (ativa-windows.yml).
+      - "flutter/lib/ativa/tech/**"
+      - "flutter/lib/desktop/**"
+      - ".github/workflows/ativa-windows.yml"
 
 env:
   RUST_VERSION: "1.75"

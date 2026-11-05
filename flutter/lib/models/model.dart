@@ -971,6 +971,10 @@ class FfiModel with ChangeNotifier {
       var hasRetry = evt['hasRetry'] == 'true';
       if (!hasRetry) {
         hasRetry = shouldAutoRetryOnOffline(type, title, text);
+      } else if (isDesktop && _pi.isSet.isTrue) {
+        // Ativa Remote T.I.: queda que o RustDesk ja tenta de novo sozinho
+        // tambem segue o ritmo de 4 s (ver showMsgBox).
+        _offlineReconnectStartTime ??= DateTime.now();
       }
       showMsgBox(sessionId, type, title, text, link, hasRetry, dialogManager);
     }
@@ -1005,6 +1009,19 @@ class FfiModel with ChangeNotifier {
     String title,
     String text,
   ) {
+    // Ativa Remote T.I. (Windows): quando o usuario do outro lado sai, troca
+    // de conta ou bloqueia, o RustDesk de la reinicia na tela de login e a
+    // conexao cai. Igual ao AnyDesk, tenta de novo sozinho por ate 2 minutos
+    // (a cada poucos segundos), em vez de 30 s e so para "offline".
+    if (isDesktop &&
+        type == 'error' &&
+        title == 'Connection Error' &&
+        _pi.isSet.isTrue &&
+        !_isFatalConnectionError(text)) {
+      _offlineReconnectStartTime ??= DateTime.now();
+      return DateTime.now().difference(_offlineReconnectStartTime!).inSeconds <
+          _ativaReconnectSeconds;
+    }
     if (type == 'error' &&
         title == 'Connection Error' &&
         text == 'Remote desktop is offline' &&
@@ -1028,6 +1045,21 @@ class FfiModel with ChangeNotifier {
       }
     }
     return false;
+  }
+
+  static const _ativaReconnectSeconds = 120;
+  static const _ativaReconnectMaxDelay = 4;
+
+  /// Erros em que tentar de novo nao adianta (senha, bloqueio, recusa).
+  static bool _isFatalConnectionError(String text) {
+    final lower = text.toLowerCase();
+    return lower.contains('password') ||
+        lower.contains('manually') ||
+        lower.contains('not allowed') ||
+        lower.contains('mismatch') ||
+        lower.contains('restricted') ||
+        lower.contains('incoming only') ||
+        lower.contains('blocked');
   }
 
   handleToast(Map<String, dynamic> evt, SessionID sessionId, String peerId) {
@@ -1097,6 +1129,12 @@ class FfiModel with ChangeNotifier {
         reconnect(dialogManager, sessionId, false);
       });
       _reconnects *= 2;
+      // Ativa Remote T.I.: na reconexao apos o usuario sair, tenta a cada 4 s.
+      if (isDesktop &&
+          _offlineReconnectStartTime != null &&
+          _reconnects > _ativaReconnectMaxDelay) {
+        _reconnects = _ativaReconnectMaxDelay;
+      }
     } else {
       _reconnects = 1;
       _offlineReconnectStartTime = null;

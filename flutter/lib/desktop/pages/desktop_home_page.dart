@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'package:auto_size_text/auto_size_text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_hbb/ativa/tech/tech_home_page.dart';
 import 'package:flutter_hbb/common.dart';
 import 'package:flutter_hbb/common/widgets/animated_rotation_widget.dart';
 import 'package:flutter_hbb/common/widgets/custom_password.dart';
@@ -58,6 +59,12 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   @override
   Widget build(BuildContext context) {
     super.build(context);
+    // Ativa Remote T.I.: a tela inicial e a lista do Ativa Remote (GLPI). Esta
+    // pagina continua montada por causa do initState (canal entre as janelas,
+    // atualizacao do ID etc.); so o que ela desenha muda.
+    if (kAtivaTechHome) {
+      return _buildBlock(child: const AtivaTechHomePage());
+    }
     final isIncomingOnly = bind.isIncomingOnly();
     return _buildBlock(
         child: Row(
